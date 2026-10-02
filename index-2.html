@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>予習・復習 自動プランナー</title>
+<style>
+body{font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;max-width:1100px;margin:0 auto;padding:24px;background:#f7f7f8;color:#222}
+h1{margin-bottom:6px}.sub{color:#666;margin-top:0}
+.card{background:white;border:1px solid #ddd;border-radius:14px;padding:18px;margin:16px 0;box-shadow:0 2px 8px #00000008}
+button,select,input,textarea{font:inherit}button{cursor:pointer;border:0;border-radius:9px;padding:9px 14px;background:#333;color:#fff}
+button.secondary{background:#eee;color:#222}button.danger{background:#b33}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+label{font-weight:600}.hint{font-size:13px;color:#666}
+table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #ddd;padding:7px;text-align:left}th{background:#f0f0f2}
+input,select,textarea{width:100%;box-sizing:border-box;border:1px solid #ccc;border-radius:7px;padding:7px;background:#fff}
+.small{width:auto}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.result{border-left:5px solid #555;padding:10px 14px;background:#fafafa;border-radius:8px;margin:9px 0}
+.result strong{display:block;margin-bottom:5px}.muted{color:#777}
+@media(max-width:700px){.grid{grid-template-columns:1fr}table{font-size:13px}}
+</style>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#333333">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="予習復習">
+
+</head>
+<body>
+<h1>📚 予習・復習 自動プランナー</h1>
+<p class="sub">A週 / B週の時間割を登録すると、選んだ日の「前日の復習」と「翌日の予習」を自動で表示します。</p>
+
+<div class="card">
+<h2>① 今週の週を選ぶ</h2>
+<div class="row">
+<label>今週：
+<select id="week" onchange="setCurrentWeek()"><option>A週</option><option>B週</option></select></label>
+<span id="currentWeekText" class="hint"></span>
+<label>曜日：
+<select id="day">
+<option value="1">月</option><option value="2">火</option><option value="3">水</option>
+<option value="4">木</option><option value="5">金</option>
+<option value="6">土</option><option value="7">日</option>
+</select></label>
+<button onclick="showPlan()">今日の予習・復習を見る</button>
+</div>
+</div>
+
+<div class="card">
+<h2>② 時間割を入力</h2>
+<p class="hint">学校の時間割を入力済みです。必要ならここから変更できます。土日は入力不要です。</p>
+<div class="row">
+<label>編集する週：
+<select id="editWeek" onchange="renderTimetable()"><option>A週</option><option>B週</option></select></label>
+</div>
+<div id="timetable"></div>
+<div class="row" style="margin-top:12px">
+<button onclick="saveTimetable()">時間割を保存</button>
+
+</div>
+</div>
+
+<div class="card">
+<h2>③ 予習・復習のルールを決める</h2>
+<p class="hint">科目ごとに自由に設定できます。「数学→教科書例題を読む」「英語→本文を音読」など、自分のやり方をそのまま登録できます。</p>
+<div id="rules"></div>
+<button onclick="addRule()" style="margin-top:10px">＋ 科目を追加</button>
+<button class="secondary" onclick="saveRules()" style="margin-top:10px">ルールを保存</button>
+</div>
+
+<div class="card">
+<h2>④ 今日やること</h2>
+<div id="output" class="muted">曜日を選んで「今日の予習・復習を見る」を押してください。</div>
+</div>
+
+<script>
+const days=["","月","火","水","木","金","土","日"];
+const periods=6;
+const subjects=["数学","英語","国語","化学","物理","生物","地理","歴史","情報","その他"];
+function weekKey(label){ return label==="A週" ? "A" : "B"; }
+let currentWeek=localStorage.getItem("currentWeek")||"A週";
+function setCurrentWeek(){
+  currentWeek=document.getElementById("week").value;
+  localStorage.setItem("currentWeek",currentWeek);
+  updateWeekText();
+}
+function updateWeekText(){
+  document.getElementById("week").value=currentWeek;
+  document.getElementById("currentWeekText").textContent="現在の設定： "+currentWeek+"（週の途中で変更しなければ、このまま使えます）";
+}
+
+let data=JSON.parse(localStorage.getItem("plannerData")||"null")||{"A":{"月":["生物","英LE","言語","数学I","体育A"],"火":["化学","言語","英DD","地理","数学I"],"水":["理想(情)","化学","現国","体育B","数学A","英COM"],"木":["英LE","現国","歴史","数学A","HR"],"金":["数学I","音楽","英COM","保健","物理"],"土":[],"日":[]},"B":{"月":["理想(情)","言語","生物","英COM","理想"],"火":["英DD","数学I","地理","体育B","物理"],"水":["数学I","体育A","保健","化学","英COM","言語"],"木":["物理","数学A","歴史","現国","HR"],"金":["言語","数学A","音楽","英LE","生物"],"土":[],"日":[]}};
+
+let rules=JSON.parse(localStorage.getItem("plannerRules")||"null")||{
+ "数学I":{pre:"教科書の次の範囲を確認する",post:"教科書→A問題の順で復習する。時間があればB問題にも取り組む"},
+ "数学A":{pre:"教科書の次の範囲を確認する",post:"教科書→A問題の順で復習する。時間があればB問題にも取り組む"},
+ "英LE":{pre:"予習は基本なし。紫の範囲は予習がない日・休日に進める",post:"緑の復習をする"},
+ "英DD":{pre:"音読＋リクテイションをする",post:"音読＋リクテイションをする"},
+ "英COM":{pre:"音読＋リクテイションをする",post:"音読＋リクテイションをする"},
+ "言語":{pre:"現代語訳・単語などの暗記を確認する",post:"授業内容を復習する"},
+ "現国":{pre:"授業前に必要な範囲を確認する",post:"ノートをしっかり見返し、復習ついでに漢字・語彙を確認する"},
+ "歴史":{pre:"次の範囲を確認する",post:"教科書を読んで復習し、赤シートで重要事項を覚える"},
+ "生物":{pre:"次の範囲を確認する",post:"暗記は赤シートで確認し、授業終わりにリードαを確認する。できるところに付箋をつける"},
+ "保健":{pre:"次の範囲を確認する",post:"復習し、大切なところはノートにまとめる"},
+ "物理":{pre:"次の範囲を確認する",post:"授業ごとに復習し、リードαをしっかり解く。時間があれば応用にも取り組む"},
+ "情報":{pre:"範囲が分かり次第、暗記する内容を確認する",post:"授業内容を確認する"},
+ "地理":{pre:"次の範囲を確認する",post:"授業ごとに復習し、前の範囲もチェックする"},
+ "化学":{pre:"次の範囲を確認する",post:"授業ごとに復習し、セミナーに取り組む。応用は時間があるときにする"},
+ "体育A":{pre:"",post:""},
+ "体育B":{pre:"",post:""},
+ "音楽":{pre:"",post:""},
+ "HR":{pre:"",post:""},
+ "理想(情)":{pre:"",post:""},
+ "その他":{pre:"",post:""}
+};
+
+function save(){localStorage.setItem("plannerData",JSON.stringify(data));localStorage.setItem("plannerRules",JSON.stringify(rules));}
+
+function renderTimetable(){
+ const w=weekKey(document.getElementById("editWeek").value);
+ let s="<table><tr><th>曜日</th><th>1限</th><th>2限</th><th>3限</th><th>4限</th><th>5限</th><th>6限</th></tr>";
+ for(let d=1;d<=5;d++){
+   s+=`<tr><th>${days[d]}</th>`;
+   const max=d===3?6:5;
+   for(let p=0;p<6;p++){
+     if(p<max) s+=`<td><input data-d="${d}" data-p="${p}" value="${escapeHtml(data[w][days[d]][p])}" placeholder="科目"></td>`;
+     else s+='<td class="muted">—</td>';
+   }
+   s+="</tr>";
+ }
+ s+="</table>";
+ document.getElementById("timetable").innerHTML=s;
+}
+function saveTimetable(){
+ const w=weekKey(document.getElementById("editWeek").value);
+ document.querySelectorAll("#timetable input").forEach(x=>data[w][days[x.dataset.d]][x.dataset.p]=x.value.trim());
+ save(); alert("時間割を保存しました！");
+}
+function renderRules(){
+ let s="<table><tr><th>科目</th><th>予習</th><th>復習</th><th></th></tr>";
+ Object.keys(rules).forEach(k=>{
+  s+=`<tr><td><input class="rname" value="${escapeHtml(k)}"></td><td><textarea class="rpre">${escapeHtml(rules[k].pre)}</textarea></td><td><textarea class="rpost">${escapeHtml(rules[k].post)}</textarea></td><td><button class="danger" onclick="this.closest('tr').remove()">削除</button></td></tr>`;
+ });
+ s+="</table>";document.getElementById("rules").innerHTML=s;
+}
+function addRule(){
+ const tr=document.createElement("tr");
+ tr.innerHTML='<td><input class="rname" placeholder="科目"></td><td><textarea class="rpre" placeholder="予習内容"></textarea></td><td><textarea class="rpost" placeholder="復習内容"></textarea></td><td><button class="danger" onclick="this.closest(\'tr\').remove()">削除</button></td>';
+ document.querySelector("#rules table").appendChild(tr);
+}
+function saveRules(){
+ const nr={};
+ document.querySelectorAll("#rules table tr").forEach((tr,i)=>{
+  if(i===0)return;
+  const n=tr.querySelector(".rname").value.trim();
+  if(n)nr[n]={pre:tr.querySelector(".rpre").value.trim(),post:tr.querySelector(".rpost").value.trim()};
+ });
+ rules=nr;save();alert("ルールを保存しました！");
+}
+function normalizeSubject(s){
+ s=s.trim();
+ if(rules[s])return s;
+ for(const k of Object.keys(rules))if(s.includes(k)||k.includes(s))return k;
+ if(/^英/.test(s)) return s;
+ if(s.includes("数学")) return s.includes("A")?"数学A":"数学I";
+ return "その他";
+}
+function getClasses(w,d){
+ if(d>=6) return [];
+ const max=d===3?6:5;
+ return data[w][days[d]].slice(0,max).filter(x=>x&&x.trim());
+}
+function showPlan(){
+ saveTimetableSilently();
+ const w=weekKey(document.getElementById("week").value);
+ const d=+document.getElementById("day").value;
+ let out=`<p><b>${document.getElementById("week").value}・${days[d]}曜日</b></p>`;
+ if(d>=6){
+   const friday=getClasses(w,5), monday=getClasses(w,1);
+   out+='<h3>📚 土日にやること</h3>';
+   if(!friday.length && !monday.length){
+     out+='<p class="muted">今週末に表示する予習・復習はありません。</p>';
+   } else {
+     out+='<p class="hint">土日は時間割を入力せず、金曜日の復習と月曜日の予習をまとめて行います。</p>';
+   out+='<div class="result"><strong>📘 毎日：Eステ</strong>Eステを進める</div>';
+   out+='<div class="result"><strong>📝 週末：現国・言語</strong>現国のワーク、言語（言語文化）のワークに取り組む</div>';
+     friday.forEach((sub,i)=>{
+       const key=normalizeSubject(sub), r=rules[key]||rules["その他"];
+       out+=`<div class="result"><strong>🔄 金曜 ${i+1}限：${escapeHtml(sub)} の復習</strong>${escapeHtml(r.post||"授業内容を振り返る")}</div>`;
+     });
+     monday.forEach((sub,i)=>{
+       const key=normalizeSubject(sub), r=rules[key]||rules["その他"];
+       out+=`<div class="result"><strong>📖 月曜 ${i+1}限：${escapeHtml(sub)} の予習</strong>${escapeHtml(r.pre||"次回の範囲を確認する")}</div>`;
+     });
+   }
+   document.getElementById("output").innerHTML=out;
+   return;
+ }
+ const prev=d===1?5:d-1, next=d===5?1:d+1;
+ const today=getClasses(w,d), before=getClasses(w,prev), after=getClasses(w,next);
+ out+="<h3>📘 毎日</h3>";
+ out+='<div class="result"><strong>Eステ</strong>毎日Eステを進める</div>';
+ out+="<h3>🔄 復習（前の授業）</h3>";
+ if(!before.length) out+="<p class='muted'>前日の授業はありません。</p>";
+ before.forEach((sub,i)=>{
+   const key=normalizeSubject(sub), r=rules[key]||rules["その他"];
+   let task=r.post||"授業内容を振り返る";
+   if(/^英/.test(sub)) task=(task?task+"。":"")+"音読＋リクテイション";
+   out+=`<div class="result"><strong>${i+1}限：${escapeHtml(sub)}</strong>${escapeHtml(task)}</div>`;
+ });
+ out+="<h3>📖 予習（次の授業）</h3>";
+ if(!after.length) out+="<p class='muted'>翌日の授業はありません。</p>";
+ after.forEach((sub,i)=>{
+   const key=normalizeSubject(sub), r=rules[key]||rules["その他"];
+   let task=r.pre||"次回の範囲を確認する";
+   if(/^英/.test(sub) && sub!=="英LE") task=(task?task+"。":"")+"音読＋リクテイション";
+   out+=`<div class="result"><strong>${i+1}限：${escapeHtml(sub)}</strong>${escapeHtml(task)}</div>`;
+ });
+ out+="<h3>📅 今日の授業</h3>";
+ out+=today.length?`<p>${today.map((x,i)=>`${i+1}限 ${escapeHtml(x)}`).join("　")}</p>`:"<p class='muted'>授業は登録されていません。</p>";
+ document.getElementById("output").innerHTML=out;
+}
+function saveTimetableSilently(){
+ const w=weekKey(document.getElementById("editWeek").value);
+ document.querySelectorAll("#timetable input").forEach(x=>data[w][days[x.dataset.d]][x.dataset.p]=x.value.trim());
+ save();
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));}
+function loadDemo(){
+ data.A={月:["数学","英語","地理","体育","","",""],火:["国語","数学","化学","英語","","",""],水:["英語","歴史","数学","情報","","",""],木:["化学","国語","英語","数学","","",""],金:["数学","地理","英語","体育","","",""],土:["","","","","","",""],日:["","","","","","",""]};
+ data.B={月:["英語","数学","地理","体育","","",""],火:["数学","国語","化学","英語","","",""],水:["歴史","英語","数学","情報","","",""],木:["化学","英語","国語","数学","","",""],金:["英語","数学","地理","体育","","",""],土:["","","","","","",""],日:["","","","","","",""]};
+ save();renderTimetable();alert("サンプル時間割を入れました。");
+}
+renderTimetable();renderRules();updateWeekText();
+</script>
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js"));
+}
+</script>
+
+</body>
+</html>

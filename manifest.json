@@ -1,0 +1,10 @@
+{
+  "name":"予習・復習 自動プランナー",
+  "short_name":"予習復習",
+  "start_url":"./index.html",
+  "display":"standalone",
+  "background_color":"#f7f7f8",
+  "theme_color":"#333333",
+  "lang":"ja",
+  "description":"時間割から予習・復習を自動表示する学習アプリ"
+}
